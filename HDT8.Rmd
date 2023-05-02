@@ -1,0 +1,133 @@
+
+---
+title: "HDT8"
+author: "Javier Mombiela, Jose Hernandez, Pablo Gonzalez"
+date: "2023-03-10"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(cluster) #Para calcular la silueta
+library(e1071)#para cmeans
+library(mclust) #mixtures of gaussians
+library(fpc) #para hacer el plotcluster
+library(NbClust) #Para determinar el número de clusters óptimo
+library(factoextra) #Para hacer gráficos bonitos de clustering
+library(hopkins) #Para revisar si vale la pena hacer agrupamiento
+library(GGally) #Para hacer el conjunto de graficos
+library(FeatureImpCluster) #Para revisar la importancia de las variables en los grupos.
+library(pheatmap) #Para hacer mapa de calor
+library(dplyr)
+library(nortest)
+library(rpart)
+library(caret)
+library(tree)
+library(rpart.plot)
+library(randomForest)
+library(fastDummies)
+library(profvis)
+library(mlr)
+library(e1071)
+library(caret)
+library(nnet)
+```
+
+# Lab 8 Modelo de Redes Neuronales
+## 1 Division de variables en datos numericos
+### 1.1 Transformacion de la data
+
+Al momento de analizar los datos se pudieron encontrar que muchos de los datos estan en diferentes escalas y tambien que varias columnas cuentan con datos faltantes, ademas se puede concluir por hojas anteriores que ninguno de los datos estas normalziados.
+```{r}
+datos <-read.csv("train.csv")
+datos_numericos <- datos %>%
+  select_if(is.numeric)
+cualitativas <- datos %>%
+  select_if(.predicate = function(x) !is.numeric(x))
+datos <- datos %>% mutate_at(colnames(cualitativas), function(x) as.factor(x))
+datos_numericos <-datos_numericos[complete.cases(datos_numericos),]
+```
+
+```{r}
+datos_numericos <-scale(na.omit(datos_numericos))
+```
+## 2. Creacion de la variable de clasificacion de precios
+```{r}
+datos_numericos <-data.frame(datos_numericos)
+q1 <- quantile(datos_numericos$SalePrice,0.33)
+q2 <- quantile(datos_numericos$SalePrice,0.5)
+q3 <-quantile(datos_numericos$SalePrice,0.7)
+datos_numericos$clasificacion <- sapply(datos_numericos$SalePrice, function(x) ifelse(x <= q1, "Economicas", ifelse(x >= q2 && x <= q3, "Intermedias", "Caras")))
+datos_numericos$clasificacion <-factor(datos_numericos$clasificacion)
+```
+## 3. Cojuntoss de train y test
+```{r}
+porcentaje <- 0.7
+set.seed(123)
+datos_numericos <-select(datos_numericos, -Id)
+corte <- sample(nrow(datos_numericos), nrow(datos_numericos) * porcentaje)
+train <- datos_numericos[corte, ]
+test <- datos_numericos[-corte, ]
+```
+## 4 Modelo de Redes Bayesianas
+### 4. Creacion del primer modelo
+```{r}
+modelo.nn1 <- nnet(clasificacion~.,data = train, size=2, rang=0.1,
+                   decay=5e-4, maxit=200)
+tiempo <- system.time({
+  modelo.nn1 <- nnet(clasificacion ~ ., data = train, size = 2, rang = 0.1, decay = 5e-4, maxit = 200)
+})
+```
+### 4.2 Tiempo de ejecucion del modelo
+```{r}
+cat("El modelo se procesó en", tiempo[3], "segundos.\n")
+```
+
+### 4.3 Prediccion primer modelo
+```{r}
+prediccion1 <- as.data.frame(predict(modelo.nn1, newdata = test))
+columnaMasAlta<-apply(prediccion1, 1, function(x) colnames(prediccion1)[which.max(x)])
+test$prediccion1<-columnaMasAlta 
+```
+
+### 4.4 Matriz de confusion
+```{r}
+cfm<-confusionMatrix(as.factor(test$prediccion1),test$clasificacion)
+cfm
+```
+### 4.5 Segundo modelo cambiando parametros y cambiando a funcion de activacion sigmoide
+
+```{r}
+modelo.nn2 <- nnet(clasificacion~.,data = train, size=20, rang=0.1,
+                   decay=5e-4, maxit=200,linout = FALSE, act.fct = "logistic")
+tiempo2 <- system.time({
+  modelo.nn2 <- nnet(clasificacion~.,data = train, size=20, rang=0.1,
+                   decay=5e-4, maxit=200,linout = FALSE, act.fct = "logistic")
+})
+```
+
+### 4.6 Tiempo de ejecucion
+```{r}
+cat("El modelo se procesó en", tiempo2[3], "segundos.\n")
+```
+### 4.7 Prediccion del segundo modelo
+```{r}
+prediccion2 <- as.data.frame(predict(modelo.nn2, newdata = test))
+columnaMasAlta<-apply(prediccion2, 1, function(x) colnames(prediccion2)[which.max(x)])
+test$prediccion2<-columnaMasAlta 
+```
+
+### 4.8 Matriz de confusion segundo modelo
+```{r}
+cfm<-confusionMatrix(as.factor(test$prediccion2),test$clasificacion)
+cfm
+```
+## 5. Comparacion de modelos
+En comparación de los modelos se puede mencionar que el primer modelo obtuvo un accuracy de 0.87 lo cual es mayor pero no por mucho al segundo modelo, se puede mencionar que en donde más se equivocaron los dos modelos fue en determinar el precio de las intermedias en donde el primer modelo obtuvo un sensibilidad de 0.60 mientras que el segundo modelo obtuvo una sensibilidad de 0.71 siendo este mejor pero en los otros dos tipos siendo peor y por último con respecto a los tiempos de ejecución el primer modelo fue mejor ya que este tardo en procesar alrededor de 0.20 segundos mientras que el segundo modelo tardó alrededor de 1.20 segundos lo cual nos indica que el primer modelo es mejor en todos los aspectos.
+
+## 6. Analisis si no hay sobreajustamiento en los modelos (Curavas de Aprendizaje)
+
