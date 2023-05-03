@@ -35,6 +35,8 @@ library(mlr)
 library(e1071)
 library(caret)
 library(nnet)
+library(devtools)
+library(NeuralNetTools)
 ```
 
 # Lab 8 Modelo de Redes Neuronales
@@ -130,4 +132,253 @@ cfm
 En comparación de los modelos se puede mencionar que el primer modelo obtuvo un accuracy de 0.87 lo cual es mayor pero no por mucho al segundo modelo, se puede mencionar que en donde más se equivocaron los dos modelos fue en determinar el precio de las intermedias en donde el primer modelo obtuvo un sensibilidad de 0.60 mientras que el segundo modelo obtuvo una sensibilidad de 0.71 siendo este mejor pero en los otros dos tipos siendo peor y por último con respecto a los tiempos de ejecución el primer modelo fue mejor ya que este tardo en procesar alrededor de 0.20 segundos mientras que el segundo modelo tardó alrededor de 1.20 segundos lo cual nos indica que el primer modelo es mejor en todos los aspectos.
 
 ## 6. Analisis si no hay sobreajustamiento en los modelos (Curavas de Aprendizaje)
+### 6.1 Analisis del primer modelo
+```{r}
+ datos.task = makeClassifTask(data = train, target = "clasificacion")
+    rin2 = makeResampleDesc(method = "CV", iters = 10, predict = "both")
+    lrn = makeLearner("classif.nnet", size = 2, decay = 5e-4, maxit = 200, trace = FALSE)
+    lc2 = generateLearningCurveData(learners = lrn, task = datos.task,
+                                      percs = seq(0.1, 1, by = 0.1),
+                                      measures = list(ber, setAggregation(ber, train.mean)), resampling = rin2,
+                                      show.info = FALSE)
+      plotLearningCurve(lc2, facet = "learner")
+```
+Como se puede visualizar en las curvas de aprendizaje se puede ver que la curva de test muestra una tendencia a disminuir per en el ultimo tramo esta crece un poco y por otro lado la curva de training siempre va en ascenso mientras mayor se la cantidad de datos tambien se puede visualizar que las dos curvas nunca corvergen en un punto lo cual indica que el modelo esta sobreajustado.
+### 6.2 Analisis del segundo modelo
+```{r}
+ datos.task = makeClassifTask(data = train, target = "clasificacion")
+    rin2 = makeResampleDesc(method = "CV", iters = 10, predict = "both")
+    lrn = makeLearner("classif.nnet", size = 20, decay = 5e-4, maxit = 200, trace = FALSE)
+    lc2 = generateLearningCurveData(learners = lrn, task = datos.task,
+                                      percs = seq(0.1, 1, by = 0.1),
+                                      measures = list(ber, setAggregation(ber, train.mean)), resampling = rin2,
+                                      show.info = FALSE)
+      plotLearningCurve(lc2, facet = "learner")
+```
+Como se puede visualizar en las curvas de aprendizaje se peude ver la que la linea de test tinene una tendencia a disminuir pero la curva de training error se mantiene constante por lo que esta nunca converge con la curva de test error por lo que se puede mencionar que el modelo sufre de overfitting.
 
+## 7 Tuneo de parametros
+El modelo que se tomara en cuenta para poder realizar el tuneo de parametros es el primer modelo el cual presenta un sobreajustamiento pero no es tan grave y aparte es el modelo que mas acuuracy tiene entre los dos.
+
+```{r}
+porcentaje <- 0.7
+set.seed(123)
+corte <- sample(nrow(datos_numericos), nrow(datos_numericos) * porcentaje)
+train <- datos_numericos[corte, ]
+test <- datos_numericos[-corte, ]
+```
+
+```{r}
+grid <- expand.grid(size = c(2, 4, 6, 10),
+                    decay = c(0.01, 0.1, 0.5, 1.5, 1.25))
+
+modelo_tuneado <- caret::train(clasificacion ~ ., 
+                               data = train, 
+                                 method = "nnet", 
+                                 trace = F, 
+                               tuneGrid = grid, 
+                               nnet = list(droput = 0.5), 
+                               maxit = 100)
+modelo_tuneado$bestTune
+summary(modelo_tuneado)
+```
+```{r}
+modelo_tuneado$bestTune
+```
+Como se pueden visualizar los mejores parametros para este modelo es un numero de neuronas de 2 y un decay de 0.1.
+
+### 7.1 Modeo tuneado
+```{r}
+modelo.nn3 <- nnet(clasificacion~.,data = train, size=2, rang=0.1,
+                   decay=0.1, maxit=200)
+tiempo3 <- system.time({
+  modelo.nn3 <- nnet(clasificacion ~ ., data = train, size = 2, rang = 0.1, decay = 0.1, maxit = 200)
+})
+```
+### 7.2 Tiempo de ejecucion del modelo tuneado
+```{r}
+cat("El modelo se procesó en", tiempo3[3], "segundos.\n")
+```
+
+### 7.3 Prediccion Modelo tuneado
+```{r}
+prediccion3 <- as.data.frame(predict(modelo.nn3, newdata = test))
+columnaMasAlta<-apply(prediccion3, 1, function(x) colnames(prediccion3)[which.max(x)])
+test$prediccion3<-columnaMasAlta 
+```
+
+### 7.4 Confusion de Modelo tuneado
+```{r}
+cfm<-confusionMatrix(as.factor(test$prediccion3),test$clasificacion)
+cfm
+```
+Como se puede visualizar el modelo con los parametros tuenados muestara un mejor accuracy que los otros dos modelos por lo que podemos ver que este es un mejor modelo en general y logro identificar una mejor manera las casas intermedias lo cual no fue posible para los otros dos modelos ya descritos.
+
+## 8 y 9 Generar modelos de redes neuronales con la variable de respuesta de SalesPrice
+### Primer modelo
+```{r}
+modelo.nn4 <- nnet(SalePrice~.,data = train, size=2, rang=0.1,
+                   decay=5e-4, maxit=200)
+tiempo4 <- system.time({
+  modelo.nn4 <- nnet(SalePrice ~ ., data = train, size = 2, rang = 0.1, decay = 5e-4, maxit = 200)
+})
+```
+
+### Tiempo de ejecucion del modelo
+```{r}
+cat("El modelo se procesó en", tiempo4[3], "segundos.\n")
+```
+
+### Prediccion primer modelo
+```{r}
+prediction4 <- predict(modelo.nn4, test)
+RMSE <- sqrt(mean((test$SalePrice - prediction4)^2))
+SSR <- sum((test$SalePrice- prediction4)^2)
+SST <- sum((test$SalePrice - mean(test$SalePrice))^2)
+R_squared <- 1 - (SSR / SST)
+RMSE
+R_squared
+```
+Como se puede visualizar el modelo cuenta con un RMSE 0.80 lo cual es muy alto y no es un modelo tan preciso como los otros ya que cuenta con R cuadrado de 0.44 lo cual es muy bajo a comparacion de los demas modelos.
+
+### Segundo modelo
+
+```{r}
+modelo.nn5 <- nnet(SalePrice~.,data = train, size=20, rang=0.1,
+                   decay=5e-4, maxit=200,linout = FALSE, act.fct = "logistic")
+tiempo5 <- system.time({
+  modelo.nn2 <- nnet(SalePrice~.,data = train, size=20, rang=0.1,
+                   decay=5e-4, maxit=200,linout = FALSE, act.fct = "logistic")
+})
+```
+### Tiempo de ejecucion del modelo
+```{r}
+cat("El modelo se procesó en", tiempo5[3], "segundos.\n")
+```
+### Prediccion segundo modelo
+```{r}
+prediction5 <- predict(modelo.nn5, test)
+RMSE <- sqrt(mean((test$SalePrice - prediction5)^2))
+SSR <- sum((test$SalePrice- prediction5)^2)
+SST <- sum((test$SalePrice - mean(test$SalePrice))^2)
+R_squared <- 1 - (SSR / SST)
+RMSE
+R_squared
+```
+
+Como se puede visualizar el modelo cuenta con un RMSE 0.80 lo cual es muy alto y no es un modelo tan preciso como los otros ya que cuenta con R cuadrado de 0.43 lo cual es muy bajo a comparacion de los demas modelos.
+
+## 10. Analisis entre modelos
+Se puede mencionar que entre los dos modelos el mejor modelo fue el primero pero obteniendo un r cuadrado de 0.44 mientras que el segundo modelo de 0.43, mientras que los dos son obtuvieron un RMSE de 0.80 lo cual es muy alto y nos dice que no son muy buenos y en tiempos de compilacion el prrimero fue mas rapido tomando un tiempo de 0.16 segundos y el segundo un tiempo de 1.66 por lo que se puede mencionar que el primero es mejor.
+
+## 11. Analisis de sonreajustamiento de los modelos
+### 11.1 Analisis de sobreajustamiento del segundo modelo
+```{r}
+# Define los valores de k que quieres evaluar
+ks <- seq(1, 20, by = 1)
+
+# Crea vectores para almacenar los errores de entrenamiento y prueba
+train_errors <- rep(0, length(ks))
+test_errors <- rep(0, length(ks))
+
+# Define el objeto tuneGrid con las columnas "size" y "decay"
+tuneGrid <- expand.grid(
+  size = c(2),
+  decay = c(5e-4)
+)
+
+# Calcula los errores para cada valor de k y cada combinación de size y decay
+for (i in 1:length(ks)) {
+  modelo.nn4 <- caret::train(
+    SalePrice ~ ., data = train,
+    method = "nnet",
+    preProcess = c("center", "scale"),
+    trControl = trainControl(method = "cv", number = 10),
+    tuneGrid = tuneGrid,
+    trace = FALSE
+  )
+  
+  train_preds <- predict(modelo.nn4, train)
+  test_preds <- predict(modelo.nn4, test)
+  
+  train_errors[i] <- RMSE(train$SalePrice, train_preds)
+  test_errors[i] <- RMSE(test$SalePrice, test_preds)
+}
+
+# Crea un data frame con los errores de entrenamiento y prueba para cada k
+errors <- data.frame(
+  K = ks,
+  Error = c(train_errors, test_errors),
+  Type = rep(c("Training", "Testing"), each = length(ks))
+)
+
+# Grafica los errores de entrenamiento y prueba en contra de los ks
+ggplot(errors, aes(x = K, y = Error, color = Type)) +
+  geom_line() +
+  labs(x = "k", y = "RMSE", title = "Training vs. Testing Error by k")
+```
+Como se puede visualizar en la grafica de se puede ver que los errores de test y traning son variables y estos no corvengen en ningun punto por lo que se puede conlcluir que el primer modelo cuenta con overfitting.
+
+### 11.2 Analisis del segundo modelo
+```{r}
+# Define los valores de k que quieres evaluar
+ks <- seq(1, 20, by = 1)
+
+# Crea vectores para almacenar los errores de entrenamiento y prueba
+train_errors <- rep(0, length(ks))
+test_errors <- rep(0, length(ks))
+
+# Define el objeto tuneGrid con las columnas "size" y "decay"
+tuneGrid <- expand.grid(
+  size = c(20),
+  decay = c(5e-4)
+)
+
+# Calcula los errores para cada valor de k y cada combinación de size y decay
+for (i in 1:length(ks)) {
+  modelo.nn4 <- caret::train(
+    SalePrice ~ ., data = train,
+    method = "nnet",
+    preProcess = c("center", "scale"),
+    trControl = trainControl(method = "cv", number = 10),
+    tuneGrid = tuneGrid,
+    trace = FALSE
+  )
+  
+  train_preds <- predict(modelo.nn4, train)
+  test_preds <- predict(modelo.nn4, test)
+  
+  train_errors[i] <- RMSE(train$SalePrice, train_preds)
+  test_errors[i] <- RMSE(test$SalePrice, test_preds)
+}
+
+# Crea un data frame con los errores de entrenamiento y prueba para cada k
+errors <- data.frame(
+  K = ks,
+  Error = c(train_errors, test_errors),
+  Type = rep(c("Training", "Testing"), each = length(ks))
+)
+
+# Grafica los errores de entrenamiento y prueba en contra de los ks
+ggplot(errors, aes(x = K, y = Error, color = Type)) +
+  geom_line() +
+  labs(x = "k", y = "RMSE", title = "Training vs. Testing Error by k")
+```
+Como se puede visualizar en la grafica de se puede ver que los errores de test y traning son variables y estos no corvengen en ningun punto por lo que se puede conlcluir que el primer modelo cuenta con overfitting.
+
+## 12 Tuneo de parametros para el modelo
+Para estos modelos se peude mencionar que no vale la pena tunear los parametros debido a que el overfitting de estos es muy alto y los accuracy de los dos modelos es muy bajo por loq ue hacerles esto mejoraria un poco pero aun asi no serian buenos modelos.
+
+## 13 Compare la eficiencia del mejor modelo de RNA 
+Se puede mencionar que el primer modelo obtuvo un mejor tiempo alrededor de 0.20 segundos mientras que el segundo modelo obtuvo un tiempo de alrededor de 1.20 segundos por lo que el primer modelo es mejor se puede mencionar tambien que a comparacion de los tiempos de ejeuccion de los demas modelos tardan un tiempo similar de 0.20 segundos a 1 segundo por lo que esta en lo esperado.
+
+## 14 Compare los resultados del mejor modelo de esta hoja para clasificar con los resultados de
+En comparación de los modelos se puede ver que el mejor modelo que se hizo para clasificar en esta hoja de trabajo que obtuvo un accuracy de 0.97 en comparación de los demás modelos de naives bayes, random forest, árboles, SVM de decisión entre otros este modelo fue uno de los mejores porque el accuracy de  naives bayes fue de 0.70, el de árboles de decisión de 0.65 y el de SVM de 0.64 por lo que este es mejor, pero el mejor sigue siendo random Forest que obtuvo un accuracy de uno pero en tiempos este fue el peor ya que tardó más de dos segundos en procesamiento y en comparación de este algoritmo que se proceso en 0.20 segundos.
+
+## 15 Compare los resultados del mejor modelo para predecir el precio de venta con los resultados de los algoritmos usados para el mismo propósito de las hojas de trabajo anteriores.
+
+En comparación de los modelos se puede ver que el mejor modelo que se hizo para predecir el precio de las ventas obtuvo un r^2 de 0.44 lo cual es muy poco en comparación de los otros modelos ya que el modelo de regresión lineal obtuvo un r^2 de 0.70 mientras que el multivariable 0.81 lo cual es el mejor en comparación de los tiempos de procesamiento todos tomaron alrededor de 0.20 segundos lo cual no se puede sacar diferencia en ninguno.
+
+## 16 Ahora que ha usado todos los modelos que hemos visto y aplicados al conjunto de datos llegue a conclusiones sobre cual es o cuales son los mejores modelos para clasificar dadas las características del conjunto de datos. ¿Cuál o cuáles son los mejores para predecir el precio de las casas? U
+
+Se puede concluir que los dos mejores modelos de clasificación de precio de casas es el modelo de random forest y de redes neuronales ya que estos obtuvieron un mejor accuracy el de random forest de 1 mientras que el de redes neuronales de 0.97 lo cual nos menciona que son  buenos modelos, mientras que en los modelos de para predecir el precio de las casas el mejor modelo fue el modelo de regresión lineal múltiple y el modelo de regresión lineal simple, el múltiple obtuvo un r^2 0.81 mientras que el simple 0.70 lo cual nos menciona que fueron modelos y en comparación de los demás los mejores por lo que estos modelos serian de preferencia los que se utilizarían en una hipotética predicción para este conjunto de datos.
